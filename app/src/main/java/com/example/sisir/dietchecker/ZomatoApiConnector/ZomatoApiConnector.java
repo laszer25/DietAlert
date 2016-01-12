@@ -41,7 +41,7 @@ public class ZomatoApiConnector {
         VolleyRequestQueue requestQueue = VolleyRequestQueue.getInstance();
 
         //https://developers.zomato.com/api/v2.1/search?count=100&lat="+String.valueOf(location.getLatitude())+"&lon="+String.valueOf(location.getLongitude())+"&radius=1000&sort=real_distance
-        String url = "https://developers.zomato.com/api/v2.1/search?count=100&lat="+String.valueOf(location.getLatitude())+"&lon="+String.valueOf(location.getLongitude())+"&radius=1000&sort=rating";
+        String url = "https://developers.zomato.com/api/v2.1/search?count=100&lat="+String.valueOf(location.getLatitude())+"&lon="+String.valueOf(location.getLongitude())+"&radius=200&sort=rating";
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, responseListener, errorListener){
             @Override
             public Map<String, String> getHeaders() throws AuthFailureError {

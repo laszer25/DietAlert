@@ -1,7 +1,6 @@
 package com.example.sisir.dietchecker.services;
 
 import android.Manifest;
-import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -19,11 +18,9 @@ import android.support.v4.app.TaskStackBuilder;
 import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.NotificationCompat;
 import android.util.Log;
-import android.widget.Toast;
 
 import com.android.volley.Response;
 import com.android.volley.VolleyError;
-import com.example.sisir.dietchecker.GoogleApiConnector.GoogleApiConnector;
 import com.example.sisir.dietchecker.MainActivity;
 import com.example.sisir.dietchecker.R;
 import com.example.sisir.dietchecker.Zomato.Restaurant;
@@ -35,6 +32,7 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
 import com.google.android.gms.location.ActivityRecognition;
 import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
@@ -56,11 +54,14 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
 
     GoogleApiClient mGoogleApiClient;
     IntentFilter mBroadcastFilter;
+    IntentFilter mBroadcastFilterGeofence;
     List<Restaurant> polygon = null;
     Location mLastLocation;
+    PendingIntent pendingIntent;
     int counter = 0;
     int previousActivity;
     boolean isNetworkCall = false;
+    boolean isgeofenceSetup = false;
     private LocalBroadcastManager mBroadcastManager;
 
     @Nullable
@@ -111,6 +112,24 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
             }
         };
         mBroadcastManager.registerReceiver(updateListReceiver, mBroadcastFilter);
+
+        mBroadcastFilterGeofence = new IntentFilter(Utils.ACTION_GEOFENCE_STATUS);
+        mBroadcastFilterGeofence.addCategory(Utils.CATEGORY_LOCATION_SERVICES);
+        BroadcastReceiver geofenceReciever = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int geofenceTransition = intent.getIntExtra("GEOFENCE_TRANSITION",0);
+
+                if(geofenceTransition == Geofence.GEOFENCE_TRANSITION_EXIT) {
+                    if(pendingIntent != null) {
+                        List<String> reqId = new ArrayList<>();
+                        reqId.add("geofence");
+                        LocationServices.GeofencingApi.removeGeofences(mGoogleApiClient, reqId);
+                        isgeofenceSetup = false;
+                    }
+                }
+            }
+        };
     }
 
     private void setupGoogleApi() {
@@ -277,16 +296,36 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
                 if(mLastLocation != null) {
                     //LatLng latLng = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
                     Restaurant restaurant = getRestaurantFromLocation(mLastLocation);
-
-                    if(isPointInPolygon(restaurant, polygon)){
                         Restaurant nearRestaurant = isNearRestaurant();
                         if(nearRestaurant != null) {
                             sendNotification(nearRestaurant);
                         }
-                    }
+                    Intent intent = new Intent(getApplicationContext(), GeofenceService.class);
+                    pendingIntent = PendingIntent.getService(getApplicationContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+                    PendingResult<Status> pendingResult = LocationServices.GeofencingApi.addGeofences(mGoogleApiClient, getGeofencingRequest(mLastLocation), pendingIntent);
+                    isgeofenceSetup = true;
                 }
             }
         };
+    }
+
+    private List<Geofence> getGeofencingRequest(Location mLastLocation) {
+        List<Geofence> geofences = new ArrayList<>();
+        geofences.add(new Geofence.Builder()
+                // Set the request ID of the geofence. This is a string to identify this
+                // geofence.
+                .setRequestId("geofence")
+
+                .setCircularRegion(
+                        mLastLocation.getLatitude(),
+                        mLastLocation.getLongitude(),
+                        200
+                )
+                .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT)
+                .build());
+        return geofences;
     }
 
     private Restaurant getRestaurantFromLocation(Location mLastLocation) {
@@ -343,18 +382,7 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
             //Toast.makeText(this, "Polygon null", Toast.LENGTH_SHORT).show();
             return false;
         }
-        if(mLastLocation != null) {
-            Restaurant restaurant = getRestaurantFromLocation(mLastLocation);
-            if(isPointInPolygon(restaurant, polygon)) {
-                //Toast.makeText(this, "WithinGeoFence", Toast.LENGTH_SHORT).show();
-                return true;
-            }
-            else {
-                //Toast.makeText(this, "OutsideGeoFence", Toast.LENGTH_SHORT).show();
-                return false;
-            }
-        }
-        return false;
+        return isgeofenceSetup;
     }
 
     private boolean activityStopped() {

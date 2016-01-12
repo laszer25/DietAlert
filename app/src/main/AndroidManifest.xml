@@ -44,6 +44,10 @@
         <service android:name=".services.ActivityRecognitionService"
 
             android:enabled="true"></service>
+        <service android:name=".services.GeofenceService"
+            android:enabled="true">
+
+        </service>
     </application>
 
 </manifest>
