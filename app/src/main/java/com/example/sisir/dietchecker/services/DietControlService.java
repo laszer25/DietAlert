@@ -18,22 +18,30 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.NotificationCompat;
+import android.util.Log;
 import android.widget.Toast;
 
 import com.android.volley.Response;
 import com.android.volley.VolleyError;
+import com.example.sisir.dietchecker.GoogleApiConnector.GoogleApiConnector;
 import com.example.sisir.dietchecker.MainActivity;
 import com.example.sisir.dietchecker.R;
 import com.example.sisir.dietchecker.Zomato.Restaurant;
 import com.example.sisir.dietchecker.Zomato.Zomato;
+import com.example.sisir.dietchecker.Zomato.ZomatoRestaurant;
 import com.example.sisir.dietchecker.ZomatoApiConnector.ZomatoApiConnector;
 import com.example.sisir.dietchecker.utils.Utils;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.location.ActivityRecognition;
 import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.places.PlaceLikelihood;
+import com.google.android.gms.location.places.PlaceLikelihoodBuffer;
+import com.google.android.gms.location.places.Places;
 import com.google.android.gms.maps.model.LatLng;
 
 import org.json.JSONObject;
@@ -48,10 +56,11 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
 
     GoogleApiClient mGoogleApiClient;
     IntentFilter mBroadcastFilter;
-    ArrayList<LatLng> polygon = null;
+    List<Restaurant> polygon = null;
     Location mLastLocation;
     int counter = 0;
     int previousActivity;
+    boolean isNetworkCall = false;
     private LocalBroadcastManager mBroadcastManager;
 
     @Nullable
@@ -83,13 +92,17 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
             public void onReceive(Context context, Intent intent) {
                 int activity = intent.getIntExtra("DETECTED_ACTIVITY", 0);
                 int confidence = intent.getIntExtra("CONFIDENCE", 0);
-                if (confidence > 50) {
+                //Toast.makeText(context, activity + " " + confidence, Toast.LENGTH_SHORT).show();
+                checkForActivityChange();
+
+                if (confidence > 0) {
                     //Toast.makeText(context, activity + " " + confidence, Toast.LENGTH_SHORT).show();
+                    checkForActivityChange();
                     if (activity == previousActivity) {
                         counter++;
                     } else {
-                        if (previousActivity != DetectedActivity.STILL && activity == DetectedActivity.STILL && counter >= 10) {
-                            checkForActivityChange();
+                        if (previousActivity != DetectedActivity.STILL && counter >= 1) {
+                            //checkForActivityChange();
                         }
                         previousActivity = activity;
                         counter = 0;
@@ -104,6 +117,8 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(ActivityRecognition.API)
                 .addApi(LocationServices.API)
+                .addApi(Places.GEO_DATA_API)
+                .addApi(Places.PLACE_DETECTION_API)
                 .addConnectionCallbacks(this)
                 .addOnConnectionFailedListener(this)
                 .build();
@@ -123,20 +138,21 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
         mLastLocation = LocationServices.FusedLocationApi.getLastLocation(
                 mGoogleApiClient);
         if (isWithinGeoFence()) {
-            if (isNearRestaurant()) {
-                sendNotification();
+            Restaurant nearRestaurant = isNearRestaurant();
+            if (nearRestaurant != null) {
+                sendNotification(nearRestaurant);
             }
         } else {
             makeServiceCall();
         }
     }
 
-    private void sendNotification() {
+    private void sendNotification(Restaurant nearRestaurant) {
 
         NotificationCompat.Builder mBuilder =
                 (NotificationCompat.Builder) new NotificationCompat.Builder(this)
                         .setSmallIcon(android.R.drawable.stat_notify_error)
-                        .setContentTitle("You're on a diet")
+                        .setContentTitle(nearRestaurant.getRestaurant().getName())
                         .setContentText("You are near a restaurant, remember that you are on a diet");
         Intent resultIntent = new Intent(this, MainActivity.class);
 
@@ -158,6 +174,53 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
     }
 
     private void makeServiceCall() {
+        //makeGoogleServiceCall();
+        if(!isNetworkCall) {
+            //Toast.makeText(getApplicationContext(),"network false", Toast.LENGTH_SHORT).show();
+            makeZomatoServiceCall();
+        }
+        else {
+            //Toast.makeText(getApplicationContext(),"network true", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void makeGoogleServiceCall() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        PendingResult<PlaceLikelihoodBuffer> result = Places.PlaceDetectionApi
+                .getCurrentPlace(mGoogleApiClient, null);
+        result.setResultCallback(new ResultCallback<PlaceLikelihoodBuffer>() {
+            @Override
+            public void onResult(PlaceLikelihoodBuffer likelyPlaces) {
+                for (PlaceLikelihood placeLikelihood : likelyPlaces) {
+                    Log.d("Google Api", String.format("Place '%s' has likelihood: %g",
+                            placeLikelihood.getPlace().getName(),
+                            placeLikelihood.getLikelihood()));
+                }
+                likelyPlaces.release();
+            }
+        });
+    }
+
+    private Response.Listener<JSONObject> onGoogleRestaurantsRecieved() {
+        return new Response.Listener<JSONObject>() {
+            @Override
+            public void onResponse(JSONObject response) {
+                Log.d("Google", response.toString());
+            }
+        };
+    }
+
+    private void makeZomatoServiceCall() {
+        //Toast.makeText(getApplicationContext(),"Service Called", Toast.LENGTH_SHORT).show();
         ZomatoApiConnector connector = new ZomatoApiConnector(this);
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             //    ActivityCompat#requestPermissions
@@ -171,7 +234,8 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
         mLastLocation = LocationServices.FusedLocationApi.getLastLocation(
                 mGoogleApiClient);
         if(mLastLocation != null) {
-            connector.getNearbyRestaurants(getString(R.string.zomato_api_key), "From Service", mLastLocation, onRestaurantsRecieved(), onError());
+            isNetworkCall = true;
+            connector.getNearbyRestaurants(getString(R.string.zomato_api_key), "From Service", mLastLocation, onZomatoRestaurantsRecieved(), onError());
         }
     }
 
@@ -179,23 +243,27 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
         return new Response.ErrorListener() {
             @Override
             public void onErrorResponse(VolleyError error) {
-
+                isNetworkCall = false;
+                //Toast.makeText(getApplicationContext(),"Service Error", Toast.LENGTH_SHORT).show();
+                if(error != null) {
+                    if(error.getMessage() != null) {
+                        Log.d("Google Api", error.getMessage());
+                    }
+                }
             }
         };
     }
 
-    private Response.Listener<JSONObject> onRestaurantsRecieved() {
+    private Response.Listener<JSONObject> onZomatoRestaurantsRecieved() {
         return new Response.Listener<JSONObject>() {
             @Override
             public void onResponse(JSONObject response) {
+                isNetworkCall = false;
+                //Toast.makeText(getApplicationContext(),"Service Response", Toast.LENGTH_SHORT).show();
+                polygon = new ArrayList<>();
                 Zomato zomato = Utils.gson.fromJson(response.toString(), Zomato.class);
-                List<Restaurant> restaurants = new ArrayList<>(zomato.getNearbyRestaurants().values());
-                for (Restaurant restaurant : restaurants) {
-                    double lat = Double.valueOf(restaurant.getRestaurant().getLocation().getLatitude());
-                    double lng = Double.valueOf(restaurant.getRestaurant().getLocation().getLongitude());
-                    LatLng latLng = new LatLng(lat, lng);
-                    polygon.add(latLng);
-                }
+                List<Restaurant> restaurants = zomato.getRestaurants();
+                polygon = restaurants;
                 if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                     //    ActivityCompat#requestPermissions
                     // here to request the missing permissions, and then overriding
@@ -205,13 +273,15 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
                     // for ActivityCompat#requestPermissions for more details.
                     return;
                 }
-                mLastLocation = LocationServices.FusedLocationApi.getLastLocation(
-                        mGoogleApiClient);
+                mLastLocation = LocationServices.FusedLocationApi.getLastLocation( mGoogleApiClient);
                 if(mLastLocation != null) {
-                    LatLng latLng = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
-                    if(isPointInPolygon(latLng, polygon)){
-                        if(isNearRestaurant()) {
-                            sendNotification();
+                    //LatLng latLng = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
+                    Restaurant restaurant = getRestaurantFromLocation(mLastLocation);
+
+                    if(isPointInPolygon(restaurant, polygon)){
+                        Restaurant nearRestaurant = isNearRestaurant();
+                        if(nearRestaurant != null) {
+                            sendNotification(nearRestaurant);
                         }
                     }
                 }
@@ -219,27 +289,45 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
         };
     }
 
-    private boolean isNearRestaurant() {
-        for(LatLng latLng : polygon) {
+    private Restaurant getRestaurantFromLocation(Location mLastLocation) {
+        Restaurant restaurant = new Restaurant();
+        ZomatoRestaurant zomatoRestaurant = new ZomatoRestaurant();
+        zomatoRestaurant.setName("point");
+        com.example.sisir.dietchecker.Zomato.Location location = new com.example.sisir.dietchecker.Zomato.Location();
+        location.setLatitude(String.valueOf(mLastLocation.getLatitude()));
+        location.setLongitude(String.valueOf(mLastLocation.getLongitude()));
+        zomatoRestaurant.setLocation(location);
+        restaurant.setRestaurant(zomatoRestaurant);
+        return restaurant;
+    }
+
+    private Restaurant isNearRestaurant() {
+        for(Restaurant restaurant : polygon) {
+            LatLng latLng = getLatLngFromRestaurant(restaurant);
             double dist = distance(latLng, new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude()));
+            //Toast.makeText(this, "isNearRestaurant " + String.valueOf(dist), Toast.LENGTH_SHORT).show();
             if(dist < 20) {
-                return true;
+                return restaurant;
             }
         }
-        return false;
+        return null;
     }
 
     private double distance(LatLng l1, LatLng l2) {
         double lat1 = l1.latitude;
-        double lon1 = l1.longitude;
+        double lng1 = l1.longitude;
         double lat2 = l2.latitude;
-        double lon2 = l2.longitude;
-        double theta = lon1 - lon2;
-        double dist = Math.sin(deg2rad(lat1)) * Math.sin(deg2rad(lat2)) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.cos(deg2rad(theta));
-        dist = Math.acos(dist);
-        dist = rad2deg(dist);
-        dist = dist * 60 * 1.1515;
-        return (dist);
+        double lng2 = l2.longitude;
+
+        double earthRadius = 6371000; //meters
+        double dLat = Math.toRadians(lat2-lat1);
+        double dLng = Math.toRadians(lng2-lng1);
+        double a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                        Math.sin(dLng/2) * Math.sin(dLng/2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        double dist = earthRadius * c;
+        return dist;
     }
 
     private double deg2rad(double deg) {
@@ -250,15 +338,19 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
     }
 
     private boolean isWithinGeoFence() {
+        //Toast.makeText(this, "isWithinGeoFence", Toast.LENGTH_SHORT).show();
         if (polygon == null) {
+            //Toast.makeText(this, "Polygon null", Toast.LENGTH_SHORT).show();
             return false;
         }
         if(mLastLocation != null) {
-            LatLng point = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
-            if(isPointInPolygon(point, polygon)) {
+            Restaurant restaurant = getRestaurantFromLocation(mLastLocation);
+            if(isPointInPolygon(restaurant, polygon)) {
+                //Toast.makeText(this, "WithinGeoFence", Toast.LENGTH_SHORT).show();
                 return true;
             }
             else {
+                //Toast.makeText(this, "OutsideGeoFence", Toast.LENGTH_SHORT).show();
                 return false;
             }
         }
@@ -294,15 +386,26 @@ public class DietControlService extends Service implements GoogleApiClient.Conne
     public void onConnectionFailed(ConnectionResult connectionResult) {
     }
 
-    private boolean isPointInPolygon(LatLng tap, ArrayList<LatLng> vertices) {
+    private boolean isPointInPolygon(Restaurant restaurant, List<Restaurant> vertices) {
+        LatLng tap = getLatLngFromRestaurant(restaurant);
+        //Toast.makeText(this, "isPointInPolygon " + tap.latitude + " " + tap.longitude, Toast.LENGTH_SHORT).show();
         int intersectCount = 0;
         for (int j = 0; j < vertices.size() - 1; j++) {
-            if (rayCastIntersect(tap, vertices.get(j), vertices.get(j + 1))) {
+            LatLng jLatLng = getLatLngFromRestaurant(vertices.get(j));
+            LatLng kLatLng = getLatLngFromRestaurant(vertices.get(j + 1));
+            if (rayCastIntersect(tap, jLatLng, kLatLng)) {
                 intersectCount++;
             }
         }
 
         return ((intersectCount % 2) == 1); // odd = inside, even = outside;
+    }
+
+    private LatLng getLatLngFromRestaurant(Restaurant restaurant) {
+        double restaurantLat = Double.valueOf(restaurant.getRestaurant().getLocation().getLatitude());
+        double restaurantLng = Double.valueOf(restaurant.getRestaurant().getLocation().getLongitude());
+        LatLng latLng = new LatLng(restaurantLat,restaurantLng);
+        return latLng;
     }
 
     private boolean rayCastIntersect(LatLng tap, LatLng vertA, LatLng vertB) {

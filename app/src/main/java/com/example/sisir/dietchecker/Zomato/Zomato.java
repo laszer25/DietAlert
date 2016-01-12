@@ -1,5 +1,6 @@
 package com.example.sisir.dietchecker.Zomato;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,4 +25,16 @@ public class Zomato {
 
     ZomatoLocation location;
     Map<String,Restaurant> nearbyRestaurants;
+
+
+    public List<Restaurant> getRestaurants() {
+        return restaurants;
+    }
+
+    public void setRestaurants(List<Restaurant> restaurants) {
+        this.restaurants = restaurants;
+    }
+
+    List<Restaurant> restaurants;
+
 }

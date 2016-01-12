@@ -42,6 +42,8 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.Circle;
 import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Polygon;
+import com.google.android.gms.maps.model.PolygonOptions;
 
 import org.json.JSONObject;
 
@@ -93,11 +95,11 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         mapFragment.getMapAsync(new OnMapReadyCallback() {
             @Override
             public void onMapReady(GoogleMap googleMap) {
-                LatLng latLng = new LatLng(mLastLocation.getLatitude(),mLastLocation.getLongitude());
+                LatLng latLng = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
                 googleMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
                 CircleOptions circleOptions = new CircleOptions()
                         .center(latLng)
-                        .fillColor(Color.argb(180,0,0,0))
+                        .fillColor(Color.argb(140, 0, 0, 0))
                         .radius(1000);
                 googleMap.addCircle(circleOptions);
             }
@@ -166,14 +168,32 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     LinearLayoutManager llm = new LinearLayoutManager(getApplicationContext());
                     llm.setOrientation(LinearLayoutManager.VERTICAL);
                     restaurantList.setLayoutManager(llm);
-                    Collection<Restaurant> restaurantCollection = zomato.getNearbyRestaurants().values();
-                    List<Restaurant> restaurants = new ArrayList<>(restaurantCollection);
+                    List<Restaurant> restaurants = zomato.getRestaurants();
                     RestaurantAdapter adapter = new RestaurantAdapter(getApplicationContext(), restaurants);
                     restaurantList.setAdapter(adapter);
                     restaurantList.addOnScrollListener(restaurantListScrollListener(restaurantList, restaurants));
+                    setPointsOnMap(restaurants);
                 }
             }
         };
+    }
+
+    private void setPointsOnMap(final List<Restaurant> restaurants) {
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.toolbar_map);
+        mapFragment.getMapAsync(new OnMapReadyCallback() {
+            @Override
+            public void onMapReady(GoogleMap googleMap) {
+                PolygonOptions options = new PolygonOptions()
+                        .strokeColor(Color.argb(100,255,0,0))
+                        .fillColor(Color.argb(100,0,255,0));
+                for(Restaurant restaurant : restaurants) {
+                    LatLng latLng = new LatLng(Double.valueOf(restaurant.getRestaurant().getLocation().getLatitude()),Double.valueOf(restaurant.getRestaurant().getLocation().getLongitude()));
+                    options.add(latLng);
+                }
+                Polygon polygon = googleMap.addPolygon(options);
+            }
+        });
     }
 
     private RecyclerView.OnScrollListener restaurantListScrollListener(final RecyclerView restaurantList, List<Restaurant> restaurants) {
