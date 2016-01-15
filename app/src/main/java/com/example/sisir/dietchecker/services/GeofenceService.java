@@ -50,7 +50,7 @@ public class GeofenceService extends IntentService {
             Intent broadcastIntent = new Intent();
 
 
-            broadcastIntent.addCategory(Utils.CATEGORY_LOCATION_SERVICES);
+            broadcastIntent.addCategory(Utils.CATEGORY_GEOFENCE_SERVICES);
 
             broadcastIntent.setAction(Utils.ACTION_GEOFENCE_STATUS);
 

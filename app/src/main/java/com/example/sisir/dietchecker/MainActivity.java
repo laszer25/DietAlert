@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        toolbar.setTitleTextColor(Color.argb(255,0,0,0));
         setSupportActionBar(toolbar);
         setupGoogleApi();
         setupServices();
@@ -100,7 +101,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 CircleOptions circleOptions = new CircleOptions()
                         .center(latLng)
                         .fillColor(Color.argb(140, 0, 0, 0))
-                        .radius(1000);
+                        .radius(200);
                 googleMap.addCircle(circleOptions);
             }
         });
